@@ -2,4 +2,94 @@
 title: "Analyzing US Births"
 author: "Ethan Katz"
 format: html
+execute:
+  echo: false
 ---
+
+```{r}
+#| message: false
+library(tidyverse)
+library(readxl)
+```
+
+```{r}
+births <- read_excel("data/us_births_1994_2014.xlsx")
+glimpse(births)
+```
+
+```{r}
+#| cache: true
+births_tibble <- births |>
+  mutate(day_of_week = factor(
+    day_of_week,
+    levels = c("Mon", "Tues", "Wed", "Thurs", "Fri", "Sat", "Sun"),
+    ordered = TRUE
+  ))
+```
+
+```{r}
+births_by_date <- births_tibble |>
+  group_by(month, date_of_month) |>
+  summarize(average_births = mean(births), .groups = "drop")
+```
+
+```{r}
+ggplot(births_by_date, aes(x = month, y = date_of_month, fill = average_births)) +
+  geom_tile()
+```
+
+```{r}
+christmas_births <- births_tibble |>
+  filter(month == 12, date_of_month %in% c(24, 25, 26)) |>
+  group_by(year) |>
+  summarize(
+    weekday = first(day_of_week[date_of_month == 25]),
+    christmas_births = mean(births[date_of_month == 25]),
+    baseline_births = mean(births[date_of_month %in% c(24, 26)]),
+    pct_of_baseline = 100 * christmas_births / baseline_births,
+    .groups = "drop"
+  )
+```
+
+```{r}
+ggplot(christmas_births, aes(x = year, y = pct_of_baseline)) +
+  geom_line() +
+  geom_point(aes(color = weekday))
+```
+
+```{r}
+births_model <- lm(births ~ year + month + day_of_week, data = births_tibble)
+summary(births_model)$r.squared
+```
+
+```{r}
+calendar_resid <- births_tibble |>
+  mutate(percent_residual = 100 * (births - predict(births_model)) / births) |>
+  group_by(month, date_of_month) |>
+  summarize(calendar_resid = mean(percent_residual), .groups = "drop")
+```
+
+```{r}
+holiday_dips <- tibble(
+  month = c(1, 7, 11, 12),
+  date_of_month = c(1, 4, 27, 25),
+  holiday = c("New Year's Day", "July 4", "Thanksgiving", "Christmas")
+)
+
+ggplot(calendar_resid, aes(x = month, y = date_of_month, fill = calendar_resid)) +
+  geom_tile() +
+  geom_point(
+    data = holiday_dips,
+    aes(x = month, y = date_of_month),
+    color = "white",
+    inherit.aes = FALSE
+  ) +
+  geom_text(
+    data = holiday_dips,
+    aes(x = month, y = date_of_month, label = holiday),
+    color = "white",
+    size = 3,
+    nudge_y = 1,
+    inherit.aes = FALSE
+  )
+```
